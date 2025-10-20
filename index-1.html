@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Camera Protractor (Upper Arc, 0° at Left)</title>
+<style>
+  :root {
+    --ui-bg: rgba(0,0,0,0.55);
+    --ui-fg: #fff;
+    --accent: #00e5ff;
+    --accent-2: #ffd400;
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  #video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(1);
+    background: #000;
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+  }
+  #controls {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 10px;
+    display: grid;
+    grid-auto-flow: column;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--ui-bg);
+    color: var(--ui-fg);
+    border-radius: 14px;
+    backdrop-filter: blur(6px);
+  }
+  .btn {
+    appearance: none;
+    border: 0;
+    background: #111;
+    color: var(--ui-fg);
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 14px;
+  }
+  .btn:active { transform: scale(0.98); }
+  .row { display: grid; grid-auto-flow: column; gap: 8px; align-items: center; }
+  .lbl { font-size: 12px; opacity: 0.9; }
+  input[type="range"] { width: 110px; }
+</style>
+</head>
+<body>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="overlay"></canvas>
+
+  <div id="controls">
+    <button class="btn" id="flipBtn">Flip</button>
+    <div class="row">
+      <span class="lbl">Rotate</span>
+      <input id="rot" type="range" min="0" max="180" value="0" step="1" />
+    </div>
+    <div class="row">
+      <span class="lbl">Size</span>
+      <input id="scale" type="range" min="40" max="120" value="80" step="1" />
+    </div>
+    <div class="row">
+      <span class="lbl">Opacity</span>
+      <input id="alpha" type="range" min="20" max="100" value="85" step="1" />
+    </div>
+    <button class="btn" id="lockBtn">Lock</button>
+    <button class="btn" id="zeroBtn">Zero</button>
+  </div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('overlay');
+const ctx = canvas.getContext('2d', { alpha: true });
+
+let angleDeg = 0;       // 0 at far left, 90 at top, 180 at far right
+let scalePct = 80;
+let opacityPct = 85;
+let locked = false;
+let currentFacing = 'environment';
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  draw();
+}
+window.addEventListener('resize', resize);
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width, canvas.height);
+  const radius = Math.min(canvas.width, canvas.height) * (scalePct / 200);
+  const margin = Math.min(80, canvas.height * 0.08);
+  const cx = canvas.width / 2;
+  const cy = radius + margin; // position on upper hemisphere
+
+  ctx.save();
+  ctx.globalAlpha = opacityPct / 100;
+
+  // Upper semicircle arc
+  ctx.strokeStyle = 'rgba(0, 229, 255, 0.95)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, Math.PI, 2*Math.PI, true);
+  ctx.stroke();
+
+  // Ticks & labels: map 0..180 to PI..2PI
+  ctx.font = Math.max(10, radius * 0.08) + 'px system-ui';
+  ctx.fillStyle = '#00e5ff';
+  for (let d = 0; d <= 180; d += 10) {
+    const rad = Math.PI + (d * Math.PI/180);
+    const inner = radius * 0.88;
+    const outer = radius;
+    const ix = cx + inner * Math.cos(rad);
+    const iy = cy + inner * Math.sin(rad);
+    const ox = cx + outer * Math.cos(rad);
+    const oy = cy + outer * Math.sin(rad);
+
+    ctx.lineWidth = (d % 30 === 0) ? 2 : 1;
+    ctx.beginPath();
+    ctx.moveTo(ix, iy);
+    ctx.lineTo(ox, oy);
+    ctx.stroke();
+
+    if (d % 30 === 0) {
+      const tx = cx + (inner - radius*0.12) * Math.cos(rad);
+      const ty = cy + (inner - radius*0.12) * Math.sin(rad);
+      const text = String(d);
+      const metrics = ctx.measureText(text);
+      ctx.fillText(text, tx - metrics.width/2, ty - 4);
+    }
+  }
+
+  // Measuring arm: 0° at left → 180° at right
+  const a = Math.PI + (angleDeg * Math.PI/180);
+  ctx.strokeStyle = '#ffd400';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
+  ctx.stroke();
+
+  // Angle badge
+  const badgeW = 90, badgeH = 34;
+  const bx = cx - badgeW/2;
+  const by = cy + 10;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(bx, by, badgeW, badgeH);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by, badgeW, badgeH);
+  ctx.fillStyle = '#fff';
+  ctx.font = '16px system-ui';
+  const txt = Math.round(angleDeg) + '°';
+  const tw = ctx.measureText(txt).width;
+  ctx.fillText(txt, cx - tw/2, by + 22);
+
+  ctx.restore();
+}
+
+function setAngleFromPoint(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  const radius = Math.min(canvas.width, canvas.height) * (scalePct / 200);
+  const margin = Math.min(80, canvas.height * 0.08);
+  const cx = canvas.width / 2;
+  const cy = radius + margin;
+
+  const rad = Math.atan2(y - cy, x - cx);
+  let deg = (rad - Math.PI) * 180/Math.PI; // left=0
+  deg = (deg % 360 + 360) % 360; // normalize
+  if (deg > 180) deg = 180;      // clamp to upper arc
+  angleDeg = deg;
+  draw();
+}
+
+let dragging = false;
+canvas.addEventListener('pointerdown', (e) => {
+  if (locked) return;
+  dragging = true;
+  setAngleFromPoint(e.clientX, e.clientY);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (locked || !dragging) return;
+  setAngleFromPoint(e.clientX, e.clientY);
+});
+['pointerup','pointercancel','pointerleave'].forEach(ev => {
+  canvas.addEventListener(ev, () => dragging = false);
+});
+
+const rot = document.getElementById('rot');
+const scale = document.getElementById('scale');
+const alpha = document.getElementById('alpha');
+const zeroBtn = document.getElementById('zeroBtn');
+const lockBtn = document.getElementById('lockBtn');
+const flipBtn = document.getElementById('flipBtn');
+
+rot.addEventListener('input', () => { angleDeg = parseInt(rot.value, 10); draw(); });
+scale.addEventListener('input', () => { scalePct = parseInt(scale.value, 10); draw(); });
+alpha.addEventListener('input', () => { opacityPct = parseInt(alpha.value, 10); draw(); });
+zeroBtn.addEventListener('click', () => { angleDeg = 0; rot.value = 0; draw(); });
+lockBtn.addEventListener('click', () => {
+  locked = !locked;
+  lockBtn.textContent = locked ? 'Unlock' : 'Lock';
+});
+flipBtn.addEventListener('click', async () => {
+  currentFacing = (currentFacing === 'environment') ? 'user' : 'environment';
+  await startCamera();
+});
+
+async function startCamera() {
+  try {
+    if (video.srcObject) {
+      for (const t of video.srcObject.getTracks()) t.stop();
+    }
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: { ideal: currentFacing },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+  } catch (err) {
+    alert('Camera access failed. Tip: open this page over HTTPS and allow camera. Error: ' + err.message);
+  }
+}
+
+resize();
+startCamera();
+draw();
+</script>
+</body>
+</html>
